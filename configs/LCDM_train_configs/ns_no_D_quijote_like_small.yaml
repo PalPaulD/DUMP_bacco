@@ -1,0 +1,38 @@
+# Experiment
+experiment_name: ns no D, quijote like, small
+use_wandb: true
+wandb_project: DUMP
+
+# Data
+train_file: ./data/quijote_like_small/cosmologies_train.csv
+val_file: ./data/quijote_like_small/cosmologies_val.csv
+test_file: ./data/quijote_like_small/cosmologies_test.csv
+scalers_path: ./scalers/quijote_like_small.json
+batch_size: 256
+num_workers: 16
+
+# Model
+features_list:
+  - H
+  - logrhom
+  - z
+  - ns
+lr: 0.0003
+lr_factor: 0.1
+scheduler_patience: 250
+width: 256
+depth: 5
+
+# Training
+max_train_steps: 1_000_000
+accelerator: auto
+devices: 1
+precision: "32"
+val_check_interval: 8
+val_with_desi_corner: true
+patience: 10
+
+# Plotting
+plot_test: true
+plot_kmin: 0.5
+plot_kmax: 3.0

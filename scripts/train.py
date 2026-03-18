@@ -133,7 +133,24 @@ def main():
     )
 
     # Create dataloaders
-    train_loader = train_loader_with_control_samples(args, scalers)
+    if hasattr(args, 'control_file') and args.control_file:
+        train_loader = train_loader_with_control_samples(args, scalers)
+    else:
+        train_dataset = BaccoPk(
+            features_list=args.features_list,
+            target_z=bacco_target_z,
+            scalers=scalers,
+            cosmologies_file=args.train_file,
+        )
+        print(f"Train: {len(train_dataset)} samples")
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=args.num_workers,
+            pin_memory=True,
+            persistent_workers=True
+        )
     val_loader = DataLoader(
         val_dataset,
         batch_size=args.batch_size,
@@ -171,10 +188,10 @@ def main():
         features_list=args.features_list,
         lr=args.lr,
         lr_factor=args.lr_factor,
-        lr_scheduler_patience=args.lr_scheduler_patience,
+        lr_scheduler_patience=args.scheduler_patience,
         scalers=scalers,
         val_with_desi_corner=args.val_with_desi_corner,
-        control_loss_weight=args.control_loss_weight
+        control_loss_weight=getattr(args, 'control_loss_weight', 0.0)
     )
     print(f"MLP: {model.mlp}")
 
@@ -249,30 +266,38 @@ def main():
 
     trainer.fit(model, train_loader, val_loader)
 
-    print(f"\nTraining complete! Control samples seen during training: {model.control_samples_seen_}")
+    if hasattr(args, 'control_file') and args.control_file:
+        print(f"\nTraining complete! Control samples seen during training: {model.control_samples_seen_}")
+    else:
+        print(f"\nTraining complete! (pure LCDM, no control samples)")
 
     plot_dir = output_path / "plots"
     plot_dir.mkdir(exist_ok=True)
 
     # w0wa plot requires a lot of samples, so I do it with dataloaders
-    print("\nMaking w0wa errors plots...")
     test_pred = trainer.predict(model, test_loader)
     w0 = np.concatenate([batch['cosmo']['w0'].cpu().numpy() for batch in test_pred])
     wa = np.concatenate([batch['cosmo']['wa'].cpu().numpy() for batch in test_pred])
     target = 10 ** np.concatenate([batch['target'].cpu().numpy() for batch in test_pred])
     pred = 10 ** np.concatenate([batch['target_pred'].cpu().numpy() for batch in test_pred])
-    plot_errors_w0wa_dataset(
-        w0=w0,
-        wa=wa,
-        target=target,
-        target_pred=pred,
-        target_z=model.target_z.cpu().numpy(),
-        k=bacco_k,
-        kmin=args.plot_kmin,
-        kmax=args.plot_kmax,
-        logger=logger if args.use_wandb else None,
-        save_location=str(plot_dir) if not args.use_wandb else "wandb",
-    )
+
+    # Only make w0wa plot if there is actual variation in w0/wa
+    if np.std(w0) > 1e-6 or np.std(wa) > 1e-6:
+        print("\nMaking w0wa errors plots...")
+        plot_errors_w0wa_dataset(
+            w0=w0,
+            wa=wa,
+            target=target,
+            target_pred=pred,
+            target_z=model.target_z.cpu().numpy(),
+            k=bacco_k,
+            kmin=args.plot_kmin,
+            kmax=args.plot_kmax,
+            logger=logger if args.use_wandb else None,
+            save_location=str(plot_dir) if not args.use_wandb else "wandb",
+        )
+    else:
+        print("\nSkipping w0wa plot (no variation in w0/wa — pure LCDM test set)")
 
     print("\nMaking ratio plots...")
     plot_one_param_ratios(
